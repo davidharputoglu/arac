@@ -11,9 +11,10 @@ apt-get install -y -qq curl ca-certificates git build-essential pkg-config file 
 NODE=22.12.0
 curl -fsSL "https://nodejs.org/dist/v$NODE/node-v$NODE-linux-armv7l.tar.xz" | tar -xJ -C /opt
 export PATH="/opt/node-v$NODE-linux-armv7l/bin:$PATH"
-# Rust
-curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
-. "$HOME/.cargo/env"
+# Rust (dépendances gardées en cache entre deux fabrications : dossier .cargo-armhf)
+export CARGO_HOME="$PWD/.cargo-armhf" RUSTUP_HOME=/opt/rustup
+curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-host armv7-unknown-linux-gnueabihf --no-modify-path
+export PATH="$CARGO_HOME/bin:$PATH"
 git config --global --add safe.directory "$PWD"
 npm ci --no-audit --no-fund
 scripts/ci-build-linux.sh armhf

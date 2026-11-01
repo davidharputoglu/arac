@@ -8,3 +8,4 @@ src-tauri/binaries/*
 src-tauri/gen/schemas/
 src-tauri/windows/LibreOffice.msi
 src-tauri/windows/libreoffice.nsh
+.cargo-armhf/

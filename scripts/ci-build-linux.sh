@@ -13,11 +13,17 @@ VERSION="$(grep -oP "APP_VERSION = '\K[^']+" src/version.ts)"
 scripts/prepare-linux.sh "$ARCH"
 # Les AppImage de linuxdeploy doivent pouvoir tourner sans FUSE (conteneurs).
 export APPIMAGE_EXTRACT_AND_RUN=1
-npx tauri build --bundles deb,rpm,appimage --config src-tauri/release-linux.json
+# En ARM 32 bits, Tauri devine mal la cible (armv7-…-gnu, « armel ») : on la donne.
+TARGET=()
+B="src-tauri/target/release/bundle"
+if [ "$ARCH" = armhf ]; then
+    TARGET=(--target armv7-unknown-linux-gnueabihf)
+    B="src-tauri/target/armv7-unknown-linux-gnueabihf/release/bundle"
+fi
+npx tauri build --bundles deb,rpm,appimage --config src-tauri/release-linux.json "${TARGET[@]}"
 
 OUT="$ROOT/out"
 mkdir -p "$OUT"
-B="src-tauri/target/release/bundle"
 cp "$(ls $B/deb/*.deb | head -1)" "$OUT/Arac_${VERSION}_linux_${ARCH}.deb"
 cp "$(ls $B/rpm/*.rpm | head -1)" "$OUT/Arac_${VERSION}_linux_${ARCH}.rpm"
 cp "$(ls $B/appimage/*.AppImage | head -1)" "$OUT/Arac_${VERSION}_linux_${ARCH}.AppImage"
