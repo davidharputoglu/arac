@@ -1,0 +1,26 @@
+[Desktop Entry]
+Type=Application
+Name=Araç
+Comment=Universal converter
+Comment[fr]=Convertisseur universel
+Comment[en]=Universal converter
+Comment[es]=Convertidor universal
+Comment[pt]=Conversor universal
+Comment[it]=Convertitore universale
+Comment[tr]=Evrensel dönüştürücü
+Comment[az]=Universal çevirici
+Comment[uz]=Universal konvertor
+Comment[kk]=Әмбебап түрлендіргіш
+Comment[tk]=Uniwersal öwüriji
+Comment[ky]=Универсалдуу өзгөрткүч
+Comment[tt]=Универсаль үзгәрткеч
+Comment[ug]=ئۇنىۋېرسال ئايلاندۇرغۇچ
+Exec={{exec}}
+StartupWMClass={{exec}}
+Icon={{icon}}
+Terminal=false
+Categories={{categories}}
+Keywords=convert;converter;video;audio;image;pdf;document;archive;zip;
+{{#if mime_type}}
+MimeType={{mime_type}}
+{{/if}}

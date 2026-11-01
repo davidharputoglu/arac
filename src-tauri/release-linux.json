@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/arac-ffmpeg", "binaries/arac-7z"],
+    "resources": {
+      "binaries/licenses/*": "licenses/",
+      "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md",
+      "../LEGAL.md": "LEGAL.md"
+    }
+  }
+}

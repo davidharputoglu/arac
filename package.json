@@ -1,32 +1,41 @@
 {
-  "name": "ashina",
+  "name": "arac",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "description": "Araç — convertisseur universel de fichiers (bureau Windows/Linux et web)",
+  "author": "David HARPUTOGLU",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/davidharputoglu/arac.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "build:web": "tsc -b && vite build --mode web",
     "preview": "vite preview",
-    "tauri": "WEBKIT_DISABLE_DMABUF_RENDERER=1 tauri"
+    "preview:web": "vite preview --mode web",
+    "tauri": "tauri",
+    "test": "node tests/run-web-tests.mjs"
   },
   "dependencies": {
-    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/core": "0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.10",
     "@ffmpeg/util": "^0.12.1",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
-    "@tauri-apps/plugin-fs": "^2.4.5",
-    "@tauri-apps/plugin-shell": "^2.0.0",
-    "jszip": "^3.10.1",
+    "fflate": "^0.8.2",
     "lucide-react": "^0.474.0",
+    "marked": "^15.0.12",
+    "pdf-lib": "^1.17.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "vite-plugin-cross-origin-isolation": "^0.1.6"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
-    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/cli": "2.10.0",
+    "@types/node": "^22.20.5",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

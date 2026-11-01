@@ -1,71 +1,75 @@
-import React, { useState, useRef } from 'react';
-import { UploadCloud } from 'lucide-react';
-import { useLanguage } from '../contexts/LanguageContext';
+import { useRef, useState, type DragEvent } from 'react'
+import { CloudUpload, FilePlus, FolderPlus } from 'lucide-react'
+import { useI18n } from '../i18n'
 
 interface DropzoneProps {
-    onFilesSelected: (files: File[]) => void;
+    desktop: boolean
+    /** Survol par un glisser-déposer natif (bureau). */
+    nativeHover: boolean
+    compact: boolean
+    onFiles: (files: File[]) => void
+    onPickFiles: () => void
+    onPickFolder: () => void
 }
 
-export function Dropzone({ onFilesSelected }: DropzoneProps) {
-    const { t } = useLanguage();
-    const [isDragActive, setIsDragActive] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+export function Dropzone({ desktop, nativeHover, compact, onFiles, onPickFiles, onPickFolder }: DropzoneProps) {
+    const { t } = useI18n()
+    const [hover, setHover] = useState(false)
+    const input = useRef<HTMLInputElement>(null)
+    const active = hover || nativeHover
 
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragActive(true);
-    };
-
-    const handleDragLeave = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragActive(false);
-    };
-
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragActive(false);
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            onFilesSelected(Array.from(e.dataTransfer.files));
-        }
-    };
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            onFilesSelected(Array.from(e.target.files));
-        }
-    };
+    const onDrop = (e: DragEvent) => {
+        e.preventDefault()
+        setHover(false)
+        if (!desktop && e.dataTransfer.files.length) onFiles(Array.from(e.dataTransfer.files))
+    }
+    const open = () => (desktop ? onPickFiles() : input.current?.click())
 
     return (
         <div
-            className={`relative overflow-hidden rounded-3xl border-2 border-dashed transition-all duration-300 ease-out flex flex-col items-center justify-center p-8 sm:p-12
-            ${isDragActive
-                    ? 'border-teal-500 bg-teal-50/50 dark:bg-teal-500/10 scale-[1.02]'
-                    : 'border-slate-300 dark:border-slate-700 bg-white/50 dark:bg-slate-800/30 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:border-slate-400 dark:hover:border-slate-500'}`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
+            className={`relative rounded-3xl border-2 border-dashed transition-all duration-200 flex flex-col items-center justify-center text-center cursor-pointer select-none
+                ${compact ? 'p-5 sm:p-6' : 'p-8 sm:p-12'}
+                ${active
+                    ? 'border-accent bg-accent/10 scale-[1.01]'
+                    : 'border-line bg-surface/60 hover:bg-surface hover:border-accent/60'}`}
+            onDragOver={(e) => { e.preventDefault(); setHover(true) }}
+            onDragLeave={(e) => { e.preventDefault(); setHover(false) }}
+            onDrop={onDrop}
+            onClick={open}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && open()}
+            data-testid="dropzone"
         >
-            <div className="relative z-10 flex flex-col items-center text-center gap-4">
-                <div className={`p-4 rounded-2xl transition-colors duration-300 ${isDragActive ? 'bg-teal-500 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}>
-                    <UploadCloud size={48} strokeWidth={1.5} />
-                </div>
-                <div>
-                    <p className="text-xl font-medium text-slate-700 dark:text-slate-200 mb-1">
-                        {t('dropzoneTitle')}
-                    </p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                        {t('dropzoneDesc')}
-                    </p>
-                </div>
+            <div className={`rounded-2xl transition-colors ${compact ? 'p-2.5 mb-2' : 'p-4 mb-4'} ${active ? 'bg-accent text-onaccent' : 'bg-raised text-accent'}`}>
+                <CloudUpload size={compact ? 28 : 44} strokeWidth={1.5} />
             </div>
+            <p className={`${compact ? 'text-base' : 'text-xl'} font-medium text-fg mb-1`}>
+                {active ? t('dropRelease') : t('dropTitle')}
+            </p>
+            <p className="text-sm text-muted max-w-md">
+                {desktop ? t('dropDescDesktop') : t('dropDescWeb')}
+            </p>
+            {desktop && (
+                <div className="flex flex-wrap justify-center gap-2 mt-4" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={onPickFiles} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-raised hover:bg-accent/15 text-fg border border-line">
+                        <FilePlus size={16} /> {t('addFiles')}
+                    </button>
+                    <button onClick={onPickFolder} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-raised hover:bg-accent/15 text-fg border border-line">
+                        <FolderPlus size={16} /> {t('addFolder')}
+                    </button>
+                </div>
+            )}
             <input
+                ref={input}
                 type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                className="hidden"
                 multiple
+                className="hidden"
+                onChange={(e) => {
+                    if (e.target.files?.length) onFiles(Array.from(e.target.files))
+                    e.target.value = ''
+                }}
             />
         </div>
-    );
+    )
 }

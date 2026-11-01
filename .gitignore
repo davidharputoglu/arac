@@ -6,3 +6,5 @@ src-tauri/binaries/*
 !src-tauri/binaries/README.md
 *.tsbuildinfo
 src-tauri/gen/schemas/
+src-tauri/windows/LibreOffice.msi
+src-tauri/windows/libreoffice.nsh

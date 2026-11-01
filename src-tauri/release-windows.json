@@ -1,0 +1,16 @@
+{
+  "productName": "Araç",
+  "bundle": {
+    "externalBin": [
+      "binaries/arac-ffmpeg",
+      "binaries/arac-7z"
+    ],
+    "resources": {
+      "binaries/7z.dll": "7z.dll",
+      "binaries/licenses/*": "licenses/",
+      "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md",
+      "../LEGAL.md": "LEGAL.md"
+    },
+    "licenseFile": "windows/license-installer.txt"
+  }
+}

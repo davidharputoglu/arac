@@ -1,237 +1,335 @@
-import { useState, useEffect } from 'react';
-import { Layout } from './components/Layout';
-import { Dropzone } from './components/Dropzone';
-import { FileType, X, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
-import { useConverter } from './hooks/useConverter';
-import { getAvailableFormats, getDefaultFormat } from './utils/formats';
-import { useLanguage } from './contexts/LanguageContext';
-import { save } from '@tauri-apps/plugin-dialog';
-import { writeFile } from '@tauri-apps/plugin-fs';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CircleCheck, CircleHelp, Download, Info, Languages, LoaderCircle, Settings as SettingsIcon, TriangleAlert, Trash2, FolderOutput, Square } from 'lucide-react'
+import { Dropzone } from './components/Dropzone'
+import { FileRow } from './components/FileRow'
+import { HelpModal } from './components/HelpModal'
+import { SettingsModal } from './components/SettingsModal'
+import { LegalModal } from './components/LegalModal'
+import { Select } from './components/Select'
+import { AUTHOR, AUTHOR_EMAIL, ExternalLink } from './components/Credit'
+import { useJobs } from './hooks/useJobs'
+import { useI18n } from './i18n'
+import { LANGUAGES, type LanguageCode } from './i18n/languages'
+import * as desktop from './engines/desktop'
+import type { Platform } from './formats/catalog'
+import { saveSettings, type Settings } from './settings'
+import { BUILTIN_THEMES, applyTheme, loadCustomThemes, saveCustomThemes, type Theme } from './theme'
+import { APP_VERSION, RELEASES_URL, REPO_URL } from './version'
+import logo from './assets/logo.png'
 
-function App() {
-    const [files, setFiles] = useState<File[]>([]);
-    const [targetFormats, setTargetFormats] = useState<Record<number, string>>({});
-    const [conversionResults, setConversionResults] = useState<Record<number, { url: string, name: string }>>({});
+const isWindows = typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent)
 
-    const { t } = useLanguage();
-    const { status, progress, logMsg, errorMsg, convertFile } = useConverter();
+/** Page intégrée dans un autre site (iframe) ? */
+const embedded = (() => {
+    try { return window.self !== window.top } catch { return true }
+})()
 
-    // Prevent Tauri/Webkit from intercepting global drag & drop events and opening the file instead of dropping it
-    // Handle native Tauri drag events instead
+function Logo() {
+    return <img src={logo} alt="" className="w-9 h-9 rounded-[10px] shadow-lg shadow-accent/20" draggable={false} />
+}
+
+export default function App({ initialSettings }: { initialSettings: Settings }) {
+    const { t, lang, setLang } = useI18n()
+    const isDesktop = desktop.isDesktop
+    const [settings, setSettings] = useState<Settings>(initialSettings)
+    const [customThemes, setCustomThemes] = useState<Theme[]>(loadCustomThemes)
+    const [helpOpen, setHelpOpen] = useState(false)
+    const [settingsOpen, setSettingsOpen] = useState(false)
+    const [legalOpen, setLegalOpen] = useState(false)
+    const [engines, setEngines] = useState<desktop.EnginesStatus | null>(null)
+    const [nativeHover, setNativeHover] = useState(false)
+    const [zipping, setZipping] = useState(false)
+
+    const themes = useMemo(() => [...BUILTIN_THEMES, ...customThemes], [customThemes])
+    const activeTheme = themes.find((th) => th.id === settings.theme) ?? BUILTIN_THEMES[0]
+    useEffect(() => applyTheme(activeTheme), [activeTheme])
+
+    const update = useCallback((patch: Partial<Settings>) => {
+        setSettings((s) => {
+            const next = { ...s, ...patch }
+            saveSettings(next)
+            return next
+        })
+    }, [])
+
+    // La langue choisie est retenue.
     useEffect(() => {
-        let unlisten: (() => void) | undefined;
+        if (settings.lang !== lang) update({ lang })
+    }, [lang, settings.lang, update])
 
-        const setupTauriDrop = async () => {
-            try {
-                const isTauri = '__TAURI_INTERNALS__' in window;
-                if (!isTauri) return;
+    const saveCustom = useCallback((list: Theme[]) => {
+        setCustomThemes(list)
+        saveCustomThemes(list)
+    }, [])
 
-                // Listen to native Tauri file drop events
-                unlisten = await getCurrentWebview().onDragDropEvent((event) => {
-                    if (event.payload.type === 'drop') {
-                        const paths = event.payload.paths;
-                        if (paths && paths.length > 0) {
-                            // For Tauri drops, the webview doesn't get standard File objects
-                            // We create mock File objects just enough to display the name and route to the converter
-                            const newFiles = paths.map(path => {
-                                const filename = path.split(/[/\\]/).pop() || 'unknown';
-                                return new File([path], filename, { type: 'tauri/path' });
-                            });
-                            handleFilesSelected(newFiles);
-                        }
-                    }
-                });
-            } catch (err) {
-                console.error("Failed to setup Tauri drop", err);
-            }
-        };
+    const platform = useMemo<Platform>(() => {
+        if (!isDesktop) return { kind: 'web' }
+        // Tant que la détection n'est pas finie, on suppose les outils présents.
+        if (!engines) return { kind: 'desktop', tools: { ffmpeg: true, sevenzip: true, libreoffice: true } }
+        return { kind: 'desktop', tools: { ffmpeg: !!engines.ffmpeg, sevenzip: !!engines.sevenzip, libreoffice: !!engines.libreoffice } }
+    }, [isDesktop, engines])
 
-        setupTauriDrop();
+    const outputDir = isDesktop && settings.outputMode === 'folder' ? settings.outputDir : null
+    const { jobs, addFiles, addPaths, setTarget, remove, clear, convertAll, retry, cancel, cancelAll } = useJobs(platform, outputDir)
 
-        const preventDefault = (e: Event) => e.preventDefault();
-        window.addEventListener('dragover', preventDefault, false);
-        window.addEventListener('drop', preventDefault, false);
+    useEffect(() => {
+        if (isDesktop) desktop.enginesStatus().then(setEngines).catch(() => {})
+    }, [isDesktop])
 
-        return () => {
-            window.removeEventListener('dragover', preventDefault);
-            window.removeEventListener('drop', preventDefault);
-            if (unlisten) unlisten();
-        };
-    }, []);
+    const addNativePaths = useCallback(async (paths: string[]) => {
+        if (paths.length) addPaths(await desktop.inspectPaths(paths))
+    }, [addPaths])
 
-    const handleFilesSelected = (newFiles: File[]) => {
-        setFiles(prev => {
-            const updated = [...prev, ...newFiles];
-            // Set dynamic default format based on file extension
-            const newFormats = { ...targetFormats };
-            updated.forEach((f, i) => {
-                if (!newFormats[i]) newFormats[i] = getDefaultFormat(f.name);
-            });
-            setTargetFormats(newFormats);
-            return updated;
-        });
-    };
+    // Point d'entrée pour les tests automatiques de l'application de bureau.
+    useEffect(() => {
+        if (isDesktop) (window as unknown as { __aracAddPaths?: (p: string[]) => Promise<void> }).__aracAddPaths = addNativePaths
+    }, [isDesktop, addNativePaths])
 
-    const removeFile = (indexToRemove: number) => {
-        setFiles(files.filter((_, index) => index !== indexToRemove));
-        const newFormats = { ...targetFormats };
-        delete newFormats[indexToRemove];
-        setTargetFormats(newFormats);
-    };
+    // Glisser-déposer natif de l'application de bureau (chemins des fichiers).
+    useEffect(() => {
+        if (!isDesktop) return
+        let unlisten: (() => void) | undefined
+        let alive = true
+        import('@tauri-apps/api/webview').then(({ getCurrentWebview }) =>
+            getCurrentWebview().onDragDropEvent((e) => {
+                const p = e.payload
+                if (p.type === 'enter' || p.type === 'over') setNativeHover(true)
+                else if (p.type === 'leave') setNativeHover(false)
+                else if (p.type === 'drop') {
+                    setNativeHover(false)
+                    void addNativePaths(p.paths)
+                }
+            }),
+        ).then((u) => (alive ? (unlisten = u) : u()))
+        return () => { alive = false; unlisten?.() }
+    }, [isDesktop, addNativePaths])
 
-    const handleDownload = async (index: number) => {
-        const result = conversionResults[index];
-        if (!result) return;
+    // Empêche le navigateur d'ouvrir un fichier lâché à côté de la zone.
+    useEffect(() => {
+        const stop = (e: DragEvent) => e.preventDefault()
+        window.addEventListener('dragover', stop)
+        window.addEventListener('drop', stop)
+        return () => { window.removeEventListener('dragover', stop); window.removeEventListener('drop', stop) }
+    }, [])
 
+    // Page intégrée : on donne sa hauteur à la page qui l'accueille (embed.js).
+    useEffect(() => {
+        if (!embedded) return
+        const send = () => window.parent.postMessage({ arac: 'height', value: document.documentElement.scrollHeight }, '*')
+        const ro = new ResizeObserver(send)
+        ro.observe(document.body)
+        send()
+        return () => ro.disconnect()
+    }, [])
+
+    const pickOutput = async () => {
+        const dir = await desktop.pickFolder()
+        if (dir) update({ outputDir: dir, outputMode: 'folder' })
+    }
+
+    const downloadAll = async () => {
+        const done = jobs.filter((j) => j.status === 'done' && j.output?.kind === 'blob')
+        if (!done.length) return
+        setZipping(true)
         try {
-            const isTauri = '__TAURI_INTERNALS__' in window;
-            if (isTauri) {
-                const filePath = await save({ defaultPath: result.name });
-                if (filePath) {
-                    const response = await fetch(result.url);
-                    const buffer = await response.arrayBuffer();
-                    await writeFile(filePath, new Uint8Array(buffer));
-                }
-            } else {
-                const link = document.createElement('a');
-                link.href = result.url;
-                link.download = result.name;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+            const { zip } = await import('fflate')
+            const files: Record<string, Uint8Array> = {}
+            for (const j of done) {
+                if (j.output?.kind !== 'blob') continue
+                let name = j.output.name
+                for (let n = 1; files[name]; n++) name = j.output.name.replace(/(\.[^.]+)?$/, ` (${n})$1`)
+                files[name] = new Uint8Array(await j.output.blob.arrayBuffer())
             }
-        } catch (err: unknown) {
-            console.error("Save failed", err);
-            if (err instanceof Error) {
-                alert(`Erreur de téléchargement: ${err.message}`);
-            } else if (typeof err === 'string') {
-                alert(`Erreur système: ${err}`);
-            } else {
-                alert("Erreur de permission Tauri. Vérifiez la console distante.");
-            }
+            const data = await new Promise<Uint8Array>((res, rej) => zip(files, { level: 0 }, (e, d) => (e ? rej(e) : res(d))))
+            const a = document.createElement('a')
+            a.href = URL.createObjectURL(new Blob([data as BlobPart], { type: 'application/zip' }))
+            a.download = 'arac.zip'
+            a.click()
+            setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+        } finally {
+            setZipping(false)
         }
-    };
+    }
 
-    const handleConvertAll = async () => {
-        for (let i = 0; i < files.length; i++) {
-            if (!conversionResults[i]) {
-                const format = targetFormats[i] || 'MP4';
-                const result = await convertFile(files[i], format);
-                if (result) {
-                    setConversionResults(prev => ({ ...prev, [i]: { url: result.url, name: result.fileName } }));
-                }
-            }
-        }
-    };
+    const busy = jobs.some((j) => j.status === 'running' || j.status === 'queued')
+    const convertible = jobs.filter((j) => j.target && j.options.some((o) => o.target === j.target && o.engine) && ['ready', 'error', 'cancelled'].includes(j.status)).length
+    const finished = jobs.filter((j) => j.status === 'done').length
+    const doneBlobs = jobs.filter((j) => j.status === 'done' && j.output?.kind === 'blob').length
+    const missing = engines ? [!engines.ffmpeg && 'ffmpeg', !engines.sevenzip && '7-Zip'].filter(Boolean).join(', ') : ''
+    const hasFiles = jobs.length > 0
 
     return (
-        <Layout>
-            <div className="flex flex-col gap-8 w-full max-w-3xl mx-auto mt-8">
-                <header className="text-center mb-8">
-                    <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-teal-500 via-indigo-500 to-purple-600 dark:from-teal-400 dark:via-indigo-500 dark:to-purple-500 mb-4 tracking-tight">
-                        {t('heroTitle')}
-                    </h2>
-                    <p className="text-slate-600 dark:text-slate-400 text-lg max-w-xl mx-auto">
-                        {t('heroDesc')}
+        <div className={`${embedded ? '' : 'min-h-screen'} bg-bg text-fg flex flex-col`}>
+            {/* En-tête */}
+            <header className="sticky top-0 z-20 h-14 flex items-center gap-3 px-4 sm:px-6 border-b border-line bg-surface/90 backdrop-blur">
+                <Logo />
+                <div className="min-w-0">
+                    <h1 className="text-lg font-black tracking-tight leading-none text-accent">Araç</h1>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-muted font-semibold truncate">{t('appSubtitle')}</p>
+                </div>
+                <div className="ms-auto flex items-center gap-1 sm:gap-2">
+                    <label className="relative flex items-center" title={t('language')}>
+                        <Languages size={16} className="absolute start-2 z-10 text-muted pointer-events-none" />
+                        <Select
+                            value={lang}
+                            onChange={(e) => setLang(e.target.value as LanguageCode)}
+                            aria-label={t('language')}
+                            className="ps-7 py-1.5 text-sm max-w-[10.5rem]"
+                            data-testid="language-select"
+                        >
+                            {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+                        </Select>
+                    </label>
+                    {!isDesktop && (
+                        <ExternalLink href={RELEASES_URL} className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-accent/40 text-accent text-sm font-medium hover:bg-accent/10">
+                            <Download size={15} /> {t('downloadApp')}
+                        </ExternalLink>
+                    )}
+                    <button onClick={() => setHelpOpen(true)} title={t('help')} aria-label={t('help')} className="p-2 rounded-lg text-muted hover:text-fg hover:bg-raised">
+                        <CircleHelp size={20} />
+                    </button>
+                    <button onClick={() => setSettingsOpen(true)} title={t('settings')} aria-label={t('settings')} className="p-2 rounded-lg text-muted hover:text-fg hover:bg-raised" data-testid="open-settings">
+                        <SettingsIcon size={20} />
+                    </button>
+                </div>
+            </header>
+
+            <main className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col gap-5">
+                {!hasFiles && (
+                    <div className="text-center pt-2 sm:pt-6">
+                        <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-accent to-accent2 pb-1">
+                            {t('heroTitle')}
+                        </h2>
+                        <p className="mt-3 text-muted max-w-2xl mx-auto">{isDesktop ? t('heroDescDesktop') : t('heroDescWeb')}</p>
+                    </div>
+                )}
+
+                {isDesktop && engines && !engines.libreoffice && (
+                    <div className="flex gap-3 items-start rounded-xl border border-warn/40 bg-warn/10 p-3 text-sm text-fg" data-testid="notice-office">
+                        <TriangleAlert size={18} className="text-warn shrink-0 mt-0.5" />
+                        <p>{isWindows ? t('noticeNoOfficeWindows') : t('noticeNoOfficeLinux')}</p>
+                    </div>
+                )}
+                {missing && (
+                    <div className="flex gap-3 items-start rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm text-fg">
+                        <TriangleAlert size={18} className="text-danger shrink-0 mt-0.5" />
+                        <p>{t('noticeMissingTools', { tools: missing })}</p>
+                    </div>
+                )}
+
+                <Dropzone
+                    desktop={isDesktop}
+                    nativeHover={nativeHover}
+                    compact={hasFiles}
+                    onFiles={addFiles}
+                    onPickFiles={async () => addNativePaths(await desktop.pickFiles())}
+                    onPickFolder={async () => {
+                        const d = await desktop.pickFolder()
+                        if (d) await addNativePaths([d])
+                    }}
+                />
+
+                {!isDesktop && !hasFiles && (
+                    <p className="flex gap-2 items-start justify-center text-xs text-muted max-w-2xl mx-auto text-center">
+                        <Info size={14} className="shrink-0 mt-0.5" /> {t('noticeWeb')}
                     </p>
-                </header>
+                )}
 
-                <Dropzone onFilesSelected={handleFilesSelected} />
-
-                {files.length > 0 && (
-                    <div className="flex flex-col gap-4 mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        <h3 className="text-xl font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                            {t('selectedFiles')} ({files.length})
-                        </h3>
-
-                        <div className="grid gap-3">
-                            {files.map((file, index) => (
-                                <div key={index} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-2xl bg-white/60 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 backdrop-blur-sm group hover:border-slate-300 dark:hover:border-slate-600 transition-colors gap-4 sm:gap-0">
-                                    <div className="flex items-center gap-4 w-full sm:w-auto">
-                                        <div className="w-10 h-10 shrink-0 rounded-xl bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center text-slate-500 dark:text-slate-300">
-                                            <FileType size={20} />
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <h4 className="font-medium text-slate-700 dark:text-slate-200 truncate">
-                                                {file.name}
-                                            </h4>
-                                            <p className="text-sm text-slate-500 dark:text-slate-400">
-                                                {(file.size / 1024 / 1024).toFixed(2)} MB
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                                        {/* Placeholder dropdown for format selection */}
-                                        <select
-                                            value={targetFormats[index] || getDefaultFormat(file.name)}
-                                            onChange={(e) => setTargetFormats(prev => ({ ...prev, [index]: e.target.value }))}
-                                            className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-sm rounded-lg focus:ring-teal-500 focus:border-teal-500 block p-2 outline-none w-24"
-                                        >
-                                            {getAvailableFormats(file.name).map((fmt) => (
-                                                <option key={fmt} value={fmt}>{fmt}</option>
-                                            ))}
-                                        </select>
-
-                                        {conversionResults[index] ? (
-                                            <button
-                                                onClick={() => handleDownload(index)}
-                                                className="p-2 text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-400/10 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
-                                            >
-                                                <CheckCircle size={20} />
-                                                <span className="hidden sm:inline">{t('download')}</span>
-                                            </button>
-                                        ) : (
-                                            <button
-                                                onClick={() => removeFile(index)}
-                                                className="p-2 text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-400/10 rounded-lg transition-colors"
-                                                disabled={status === 'converting'}
-                                            >
-                                                <X size={20} />
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
+                {hasFiles && (
+                    <section className="rounded-2xl border border-line overflow-hidden" data-testid="file-list">
+                        <div className="flex items-center justify-between px-4 py-2.5 bg-raised/60 border-b border-line">
+                            <h3 className="text-sm font-semibold text-fg">
+                                {t('filesTitle')} <span className="text-muted font-normal">({jobs.length})</span>
+                            </h3>
+                            <button onClick={clear} disabled={busy} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-danger disabled:opacity-40">
+                                <Trash2 size={14} /> {t('clearAll')}
+                            </button>
+                        </div>
+                        <div className="divide-y divide-line">
+                            {jobs.map((job) => (
+                                <FileRow
+                                    key={job.id}
+                                    job={job}
+                                    onTarget={(tg) => setTarget(job.id, tg)}
+                                    onRemove={() => remove(job.id)}
+                                    onCancel={() => cancel(job.id)}
+                                    onRetry={() => retry(job.id)}
+                                    onReveal={(p) => void desktop.reveal(p)}
+                                />
                             ))}
                         </div>
+                    </section>
+                )}
+            </main>
 
-                        {(status === 'converting' || status === 'loading') && (
-                            <div className="flex flex-col items-center justify-center p-6 bg-white/60 dark:bg-slate-800/50 rounded-2xl border border-teal-500/30">
-                                <Loader2 className="w-8 h-8 text-teal-500 dark:text-teal-400 animate-spin mb-4" />
-                                <p className="text-slate-700 dark:text-slate-200 font-medium">{status === 'loading' ? t('engineLoading') : t('convertProgress')}</p>
-                                <div className="w-full max-w-md bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 mt-4 overflow-hidden">
-                                    <div className="bg-gradient-to-r from-teal-400 to-indigo-500 h-2.5 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
-                                </div>
-                                <div className="mt-4 w-full max-w-md p-3 bg-slate-100 dark:bg-slate-900/80 rounded-lg border border-slate-200 dark:border-slate-700">
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 font-mono break-all text-center">
-                                        {logMsg || 'Patientez...'}
-                                    </p>
-                                </div>
-                            </div>
-                        )}
-
-                        {status === 'error' && (
-                            <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl text-red-600 dark:text-red-400">
-                                <AlertCircle size={20} className="shrink-0" />
-                                <p className="text-sm">{errorMsg}</p>
-                            </div>
-                        )}
-
-                        <div className="flex justify-end mt-4">
+            {/* Barre d'actions */}
+            {hasFiles && (
+                <div className="sticky bottom-0 z-20 border-t border-line bg-surface/95 backdrop-blur">
+                    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center gap-3">
+                        {isDesktop ? (
+                            <button onClick={() => setSettingsOpen(true)} className="inline-flex items-center gap-2 min-w-0 text-sm text-muted hover:text-fg" title={t('change')}>
+                                <FolderOutput size={16} className="shrink-0 text-accent" />
+                                <span className="truncate" dir="auto">
+                                    {outputDir ? t('outputInfoFolder', { path: outputDir }) : t('outputInfoBeside')}
+                                </span>
+                            </button>
+                        ) : doneBlobs > 1 ? (
+                            <button onClick={downloadAll} disabled={zipping} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-line text-sm text-fg hover:bg-raised disabled:opacity-50" data-testid="download-all">
+                                {zipping ? <LoaderCircle size={16} className="animate-spin" /> : <Download size={16} />} {t('downloadAll')}
+                            </button>
+                        ) : <span />}
+                        <div className="ms-auto flex items-center gap-3">
+                            {finished > 0 && (
+                                <span className="inline-flex items-center gap-1.5 text-sm text-muted tabular-nums" title={t('statusDone')}>
+                                    <CircleCheck size={16} className="text-success" /> {finished}/{jobs.length}
+                                </span>
+                            )}
+                            {busy && (
+                                <button onClick={cancelAll} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-line text-fg hover:bg-raised">
+                                    <Square size={15} /> {t('cancelAll')}
+                                </button>
+                            )}
                             <button
-                                onClick={handleConvertAll}
-                                disabled={status === 'converting' || status === 'loading' || Object.keys(conversionResults).length === files.length}
-                                className="px-6 py-3 bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl shadow-lg shadow-teal-500/20 transform transition-all active:scale-95 flex items-center gap-2"
+                                onClick={convertAll}
+                                disabled={convertible === 0}
+                                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-accent to-accent2 text-onaccent font-semibold shadow-lg shadow-accent/20 hover:brightness-110 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                                data-testid="convert-all"
                             >
-                                {status === 'converting' ? t('convertingBtn') : `${t('convertBtn')} ${files.length} ${files.length > 1 ? t('filesStr') : t('fileStr')}`}
+                                {busy && convertible === 0 ? t('convertingBtn') : `${t('convertAll')}${convertible ? ` (${convertible})` : ''}`}
                             </button>
                         </div>
                     </div>
-                )}
-            </div>
-        </Layout>
-    );
-}
+                </div>
+            )}
 
-export default App;
+            <footer className="border-t border-line bg-surface/80 text-xs text-muted">
+                <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-center sm:justify-between gap-x-4 gap-y-1">
+                    <p>
+                        {t('madeBy', { name: AUTHOR })} · <ExternalLink href={`mailto:${AUTHOR_EMAIL}`}>{AUTHOR_EMAIL}</ExternalLink>
+                    </p>
+                    <p className="flex items-center gap-3">
+                        <span className="font-mono">v{APP_VERSION}</span>
+                        <button onClick={() => setLegalOpen(true)} className="hover:text-fg hover:underline" data-testid="open-legal">{t('legal')}</button>
+                        <span>GPL v3</span>
+                        <ExternalLink href={REPO_URL}>{t('sourceCode')}</ExternalLink>
+                    </p>
+                </div>
+            </footer>
+
+            <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} desktop={isDesktop} />
+            <LegalModal open={legalOpen} onClose={() => setLegalOpen(false)} desktop={isDesktop} />
+            <SettingsModal
+                open={settingsOpen}
+                onClose={() => setSettingsOpen(false)}
+                settings={settings}
+                update={update}
+                themes={themes}
+                saveCustom={saveCustom}
+                desktop={isDesktop}
+                engines={engines}
+                onPickOutput={pickOutput}
+                onOpenLegal={() => { setSettingsOpen(false); setLegalOpen(true) }}
+            />
+        </div>
+    )
+}

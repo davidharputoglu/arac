@@ -1,45 +1,91 @@
 {
-    "productName": "ASHINA",
-    "version": "0.0.1",
-    "identifier": "com.ashina.app",
-    "build": {
-        "beforeDevCommand": "npm run dev",
-        "beforeBuildCommand": "npm run build",
-        "devUrl": "http://localhost:1420",
-        "frontendDist": "../dist"
-    },
-    "app": {
-        "withGlobalTauri": true,
-        "windows": [
-            {
-                "title": "Convertisseur Universel",
-                "width": 1000,
-                "height": 800,
-                "resizable": true,
-                "fullscreen": false,
-                "transparent": false
-            }
-        ],
-        "security": {
-            "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://127.0.0.1:1420 ws://127.0.0.1:1420 blob: data:;"
-        }
-    },
-    "bundle": {
-        "active": true,
-        "targets": "all",
-        "icon": [
-            "icons/32x32.png",
-            "icons/128x128.png",
-            "icons/128x128@2x.png",
-            "icons/icon.icns",
-            "icons/icon.ico"
-        ],
-        "linux": {
-            "deb": {
-                "depends": [
-                    "alien"
-                ]
-            }
-        }
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Arac",
+  "mainBinaryName": "arac",
+  "version": "0.1.0",
+  "identifier": "io.github.davidharputoglu.arac",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Araç",
+        "width": 1100,
+        "height": 820,
+        "minWidth": 720,
+        "minHeight": 560,
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost blob: data:",
+      "devCsp": null
     }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "deb",
+      "rpm",
+      "appimage"
+    ],
+    "publisher": "David HARPUTOGLU",
+    "copyright": "© 2026 David HARPUTOGLU",
+    "license": "GPL-3.0-or-later",
+    "licenseFile": "../LICENSE",
+    "homepage": "https://github.com/davidharputoglu/arac",
+    "category": "Utility",
+    "shortDescription": "Convertisseur universel de fichiers",
+    "longDescription": "Araç convertit vidéos, sons, images, documents et archives directement sur l'ordinateur, sans rien envoyer sur Internet.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": true,
+        "languages": [
+          "English",
+          "French",
+          "Spanish",
+          "Portuguese",
+          "Italian",
+          "Turkish",
+          "Tatar",
+          "Uzbek"
+        ],
+        "customLanguageFiles": {
+          "Tatar": "./windows/lang/Tatar.nsh",
+          "Uzbek": "./windows/lang/Uzbek.nsh"
+        },
+        "installerHooks": "./windows/hooks.nsh",
+        "installerIcon": "icons/icon.ico"
+      }
+    },
+    "linux": {
+      "deb": {
+        "section": "utils",
+        "desktopTemplate": "linux/arac.desktop"
+      },
+      "rpm": {
+        "release": "1",
+        "desktopTemplate": "linux/arac.desktop"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  }
 }
